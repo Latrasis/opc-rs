@@ -1,9 +1,15 @@
 extern crate byteorder;
 
-use byteorder::{ByteOrder, BigEndian};
+use byteorder::{BigEndian, WriteBytesExt};
+use std::io::*;
+use std::borrow::Cow;
 
 pub const MAX_OPC_DATA_SIZE: usize = 65536;
 pub const MAX_OPC_PIXELS_SIZE: usize = 21845;
+
+pub const COMMAND_PIXEL_COLORS: u8 = 0;
+pub const COMMAND_SYS_EXCLUSIVE: u8 = 255;
+pub const BROADCAST_CHANNEL: u8 = 0;
 
 pub enum Command<'data> {
     SetPixelColors { pixels: & 'data [[u8; 3]] },
@@ -38,48 +44,50 @@ impl<'data> Message<'data> {
 
     /// Check if Message is a broadcast message
     pub fn is_broadcast(&self) -> bool {
-        self.channel == 0
+        self.channel == BROADCAST_CHANNEL
+    }
+}
+
+pub struct Client<W: Write> {
+    writer: BufWriter<W>
+}
+
+impl <W: Write> Client<W> {
+
+    pub fn new(writer: W) -> Client<W> {
+        Client { writer: BufWriter::with_capacity(MAX_OPC_DATA_SIZE, writer)}
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
+    pub fn send(&mut self, msg: Message) -> Result<()> {
 
-        let mut ser_len_buf = [0u8, 2];
-        let mut ser_len = self.len();
-        BigEndian::write_u16(&mut ser_len_buf, ser_len as u16);
+        let ser_len = msg.len();
 
-        match self.command {
-            Command::SetPixelColors {ref pixels} => {
-                let mut ser_data: Vec<u8> = pixels
-                .to_owned()
-                .iter()
-                .flat_map(|rgb| rgb.into_iter())
-                .cloned()
-                .collect();
+        match msg.command {
+            Command::SetPixelColors {pixels} => {
 
+                // Insert Channel and Command
+                try!(self.writer.write(&[msg.channel, COMMAND_PIXEL_COLORS]));
                 // Insert Data Length
-                ser_data.insert(0, ser_len_buf[1]);
-                ser_data.insert(0, ser_len_buf[0]);
-                // Insert Command
-                ser_data.insert(0, 0);
-                // Insert Channel
-                ser_data.insert(0, self.channel);
+                self.writer.write_u16::<BigEndian>(ser_len as u16);
 
-                ser_data
+                // Insert Data
+                for pixel in pixels {
+                    self.writer.write(pixel);
+                }
             },
-            Command::SystemExclusive {id, ref data} => {
-                let mut ser_data = id.to_vec();
-                ser_data.extend(data.iter());
+            Command::SystemExclusive {id, data} => {
 
+                // Insert Channel and Command
+                try!(self.writer.write(&[msg.channel, COMMAND_SYS_EXCLUSIVE]));
                 // Insert Data Length
-                ser_data.insert(0, ser_len_buf[1]);
-                ser_data.insert(0, ser_len_buf[0]);
-                // Insert Command
-                ser_data.insert(0, 255);
-                // Insert Channel
-                ser_data.insert(0, self.channel);
+                self.writer.write_u16::<BigEndian>(ser_len as u16);
 
-                ser_data
+                // Insert Data
+                try!(self.writer.write(&id));
+                try!(self.writer.write(&data));
             }
         }
+
+        self.writer.flush()
     }
 }
