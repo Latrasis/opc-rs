@@ -3,8 +3,8 @@ extern crate byteorder;
 use byteorder::{BigEndian, WriteBytesExt};
 use std::io::*;
 
-/// Default OPC Tcp Port
-pub const DEFAULT_PORT: usize = 7890;
+/// Default openpixel tcp port
+pub const DEFAULT_OPC_PORT: usize = 7890;
 
 const MAX_MESSAGE_SIZE: usize = 0xffff;
 const SYS_EXCLUSIVE: u8 = 0xff;
