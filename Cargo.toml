@@ -1,0 +1,9 @@
+[package]
+name = "opc"
+version = "0.1.0"
+authors = ["Jacob Payne <jacobapayne@gmail.com>"]
+
+[dependencies]
+byteorder = "*"
+serde = "0.7"
+bincode = "*"
