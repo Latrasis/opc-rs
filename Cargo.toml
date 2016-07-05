@@ -1,9 +1,10 @@
 [package]
 name = "opc"
 version = "0.1.0"
-authors = ["Jacob Payne <jacobapayne@gmail.com>"]
+authors = ["Jacob Payne <info@latrasis.com>"]
 
 [dependencies]
 byteorder = "*"
-serde = "0.7"
-bincode = "*"
+
+[dev-dependencies]
+rand = "*"

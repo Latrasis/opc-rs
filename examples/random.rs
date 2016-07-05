@@ -1,5 +1,5 @@
-
 extern crate opc;
+extern crate rand;
 
 use std::io::prelude::*;
 use std::net::TcpStream;
@@ -7,6 +7,8 @@ use std::thread;
 use std::time::{Duration};
 use std::cell::Cell;
 use opc::*;
+use rand::Rng;
+
 
 fn main() {
 
@@ -14,18 +16,23 @@ fn main() {
     let mut client = Client::new(stream);
 
     let child = thread::spawn(move || {
-        let mut pixels = [[0,255,0]; 500];
+        let mut pixels: [[u8; 3]; 1000] = [[0,0,0]; 1000];
+        let mut rng = rand::thread_rng();
 
-        for i in 0..pixels.len() {
+        loop {
 
-            thread::sleep(Duration::from_millis(10));
-            pixels[i][2] = 255;
+            for pixel in pixels.iter_mut() {
+                for c in 0..2 {
+                    pixel[c] = rng.gen();
+                }
+            }
 
             let pixel_msg = Message {
                 channel: 1,
                 command: Command::SetPixelColors { pixels: &pixels }
             };
             client.send(pixel_msg);
+            thread::sleep(Duration::from_millis(1000));
         }
     });
 
