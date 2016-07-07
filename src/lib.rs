@@ -109,3 +109,38 @@ impl <W: Write> Client<W> {
         self.writer.flush()
     }
 }
+
+trait Device {
+    fn read(&mut self, msg: &Message) -> Result<()>;
+    fn channel(&self) -> u8;
+}
+
+struct Server<R: Read> {
+    reader: R
+}
+
+impl <R: Read> Server<R> {
+    fn new(reader: R) -> Server<BufReader<R>> {
+        Server { reader: BufReader::with_capacity(MAX_MESSAGE_SIZE, reader) }
+    }
+
+    fn process(&self) {
+        unimplemented!();
+    }
+
+}
+
+#[test]
+fn should_create_server() {
+    use std::io::*;
+
+    let mut stream: &[u8] = &[0; 1];
+    let s = Server::new(stream);
+}
+
+#[test]
+fn server_should_process() {
+    let mut stream: &[u8] = &[0; 1];
+    let s = Server::new(stream);
+    s.process();
+}
