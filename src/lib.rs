@@ -1,6 +1,6 @@
 extern crate byteorder;
 
-use byteorder::{BigEndian, WriteBytesExt};
+use byteorder::{BigEndian, ByteOrder, WriteBytesExt, ReadBytesExt};
 use std::io::*;
 
 /// Default openpixel tcp port
@@ -8,10 +8,11 @@ pub const DEFAULT_OPC_PORT: usize = 7890;
 
 const MAX_MESSAGE_SIZE: usize = 0xffff;
 const SYS_EXCLUSIVE: u8 = 0xff;
-const PIXEL_COLORS: u8 = 0x00;
+const SET_PIXEL_COLORS: u8 = 0x00;
 const BROADCAST_CHANNEL: u8 = 0;
 
 /// Describes an OPC Command.
+#[derive (Debug, PartialEq)]
 pub enum Command<'data> {
     /// Contains and array of RGB values: three bytes in red, green, blue order for each pixel to set.
     SetPixelColors {
@@ -29,6 +30,7 @@ pub enum Command<'data> {
 }
 
 /// Describes a single message that follows the OPC protocol
+#[derive (Debug, PartialEq)]
 pub struct Message<'data> {
     /// Up to 255 separate strands of pixels can be controlled.
     /// Channel 0 are considered broadcast messages.
@@ -84,7 +86,7 @@ impl <W: Write> Client<W> {
             Command::SetPixelColors {pixels} => {
 
                 // Insert Channel and Command
-                try!(self.writer.write(&[msg.channel, PIXEL_COLORS]));
+                try!(self.writer.write(&[msg.channel, SET_PIXEL_COLORS]));
                 // Insert Data Length
                 try!(self.writer.write_u16::<BigEndian>(ser_len as u16));
 
@@ -110,22 +112,52 @@ impl <W: Write> Client<W> {
     }
 }
 
+
 trait Device {
-    fn read(&mut self, msg: &Message) -> Result<()>;
+    fn read_msg(&mut self, msg: &Message) -> Result<()>;
     fn channel(&self) -> u8;
 }
 
 struct Server<R: Read> {
-    reader: R
+    reader: BufReader<R>
 }
 
 impl <R: Read> Server<R> {
-    fn new(reader: R) -> Server<BufReader<R>> {
+    fn new(reader: R) -> Server<R> {
         Server { reader: BufReader::with_capacity(MAX_MESSAGE_SIZE, reader) }
     }
 
-    fn process(&self) {
-        unimplemented!();
+    fn receive<D: Device>(&mut self, output: &mut D) -> Result<()> {
+
+        let length = {
+            let buf = try!(self.reader.fill_buf());
+
+            // TODO: Check if buf length is more than 4;
+            if buf.len() < 4 { () }
+            let (channel, command) = (buf[0], buf[1]);
+            let length = BigEndian::read_u16(&buf[2..4]) as usize;
+            let data = &buf[4..][..length];
+            match command {
+                SET_PIXEL_COLORS => {
+                    let pixels: Vec<_> = data[..(length-(length % 3))].chunks(3).map(|chunk| [chunk[0],chunk[1],chunk[2]]).collect();
+                    output.read_msg(&Message {
+                        channel: channel,
+                        command: Command::SetPixelColors { pixels: &pixels }
+                    });
+                },
+                SYS_EXCLUSIVE => {
+                    output.read_msg(&Message {
+                        channel: channel,
+                        command: Command::SystemExclusive { id: [data[0], data[1]], data: &data[2..] }
+                    });
+                },
+                // TODO: What to do if incorrect?
+                _ => return Err(Error::new(ErrorKind::InvalidData, "Invalid Message Command"))
+            }
+            length+4
+        };
+
+        Ok(self.reader.consume(length))
     }
 
 }
@@ -139,8 +171,63 @@ fn should_create_server() {
 }
 
 #[test]
-fn server_should_process() {
-    let mut stream: &[u8] = &[0; 1];
-    let s = Server::new(stream);
-    s.process();
+fn server_should_receive_pixel_command() {
+
+    let mut test_write = Vec::new();
+    let msg = Message {
+        channel: 4,
+        command: Command::SetPixelColors { pixels: &[[9; 3]; 10]}
+    };
+
+    let mut client = Client::new(test_write);
+    client.send(msg);
+
+    let read_msg = client.writer.get_ref();
+    println!("{:?}", &read_msg);
+
+    struct TestDevice;
+    impl Device for TestDevice {
+        fn read_msg(&mut self, msg: &Message) -> Result<()> {
+            assert_eq!(&Message {
+                channel: 4,
+                command: Command::SetPixelColors { pixels: &[[9; 3]; 10]}
+            }, msg);
+            Ok(())
+        }
+        fn channel(&self) -> u8 { 0 }
+    }
+
+    let mut s = Server::new(read_msg.as_slice());
+    s.receive(&mut TestDevice {});
+}
+
+#[test]
+fn server_should_receive_system_command() {
+
+    let mut test_write = Vec::new();
+    let msg = Message {
+        channel: 4,
+        command: Command::SystemExclusive { id: [0; 2], data: &[8; 10]}
+    };
+
+    let mut client = Client::new(test_write);
+    client.send(msg);
+
+    let read_msg = client.writer.get_ref();
+    println!("{:?}", &read_msg);
+
+    struct TestDevice;
+    impl Device for TestDevice {
+        fn read_msg(&mut self, msg: &Message) -> Result<()> {
+            assert_eq!(&Message {
+                channel: 4,
+                command: Command::SystemExclusive { id: [0; 2], data: &[8; 10]}
+            }, msg);
+            Ok(())
+        }
+        fn channel(&self) -> u8 { 0 }
+    }
+
+    let mut s = Server::new(read_msg.as_slice());
+    s.receive(&mut TestDevice {});
 }
