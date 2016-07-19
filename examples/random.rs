@@ -16,7 +16,7 @@ fn main() {
     let mut client = Client::new(stream);
 
     let child = thread::spawn(move || {
-        let mut pixels: [[u8; 3]; 1000] = [[0,0,0]; 1000];
+        let mut pixels = vec![[0,0,0]; 1000];
         let mut rng = rand::thread_rng();
 
         loop {
@@ -29,7 +29,7 @@ fn main() {
 
             let pixel_msg = Message {
                 channel: 1,
-                command: Command::SetPixelColors { pixels: &pixels }
+                command: Command::SetPixelColors { pixels: pixels.clone() }
             };
             client.send(pixel_msg);
             thread::sleep(Duration::from_millis(1000));
