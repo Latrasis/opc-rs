@@ -2,6 +2,7 @@
 name = "opc"
 version = "0.1.0"
 authors = ["Jacob Payne <info@latrasis.com>"]
+description = "A rust implementation of the open pixel control protocol"
 
 [dependencies]
 byteorder = "*"
