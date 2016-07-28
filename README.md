@@ -68,7 +68,7 @@ fn main() {
     // A device must implement the opc::Device Trait
     impl Device for TestDevice {
       fn write_msg(&mut self, msg: &Message) -> Result<()> {
-          match msg {
+          match msg.command {
             Command::SetPixelColors {pixels} => () // Receive Pixels,
             Command::SystemExclusive {id, data} => () // Receive Custom Data
           }
