@@ -6,7 +6,7 @@ description = "A rust implementation of the open pixel control protocol"
 license = "MIT"
 
 [dependencies]
-byteorder = "*"
+byteorder = "0.5.3"
 
 [dev-dependencies]
-rand = "*"
+rand = "0.3.14"
