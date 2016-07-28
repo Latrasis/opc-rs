@@ -2,8 +2,11 @@
 name = "opc"
 version = "0.1.0"
 authors = ["Jacob Payne <info@latrasis.com>"]
-description = "A rust implementation of the open pixel control protocol"
 license = "MIT"
+description = "A rust implementation of the open pixel control protocol"
+readme = "README.md"
+repository = "https://github.com/latrasis/opc-rs"
+keywords = ["openpixel"]
 
 [dependencies]
 byteorder = "0.5.3"
