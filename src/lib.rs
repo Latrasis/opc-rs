@@ -43,7 +43,7 @@ pub struct Message {
 }
 
 impl Message {
-    /// Create new Message Instance
+    /// Create new Message Instance from Pixel Array
     pub fn from_pixels (ch: u8, pixels: &[[u8; 3]]) -> Message {
         Message {
             channel: ch,
@@ -51,6 +51,7 @@ impl Message {
         }
     }
 
+    /// Create new Message Instance from Data Array
     pub fn from_data (ch: u8, id: &[u8; 2], data: &[u8]) -> Message {
         Message {
             channel: ch,

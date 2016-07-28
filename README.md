@@ -46,3 +46,42 @@ fn main() {
 }
 
 ```
+
+### Server:
+
+```rust
+extern crate opc;
+
+use std::net::TcpStream;
+use opc::*;
+
+fn main() {
+
+    // Connect to a TCP Socket
+    let stream = TcpStream::connect("127.0.0.1:7890").unwrap();
+    // Create New Server
+    let mut server = Server::new(stream);
+
+    // Define a Device
+    struct TestDevice;
+
+    // A device must implement the opc::Device Trait
+    impl Device for TestDevice {
+      fn write_msg(&mut self, msg: &Message) -> Result<()> {
+          match msg {
+            Command::SetPixelColors {pixels} => () // Receive Pixels,
+            Command::SystemExclusive {id, data} => () // Receive Custom Data
+          }
+          Ok(())
+      }
+      fn channel(&self) -> u8 { 0 }
+    }
+
+    // Register Device
+    server.register(TestDevice {});
+
+    // Start Server
+    server.process();
+}
+
+```
