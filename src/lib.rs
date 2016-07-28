@@ -44,10 +44,17 @@ pub struct Message {
 
 impl Message {
     /// Create new Message Instance
-    pub fn new (ch: u8, cmd: Command) -> Message {
+    pub fn from_pixels (ch: u8, pixels: &[[u8; 3]]) -> Message {
         Message {
             channel: ch,
-            command: cmd
+            command: Command::SetPixelColors { pixels: pixels.to_owned() }
+        }
+    }
+
+    pub fn from_data (ch: u8, id: &[u8; 2], data: &[u8]) -> Message {
+        Message {
+            channel: ch,
+            command: Command::SystemExclusive { id: id.to_owned(), data: data.to_owned() }
         }
     }
 
