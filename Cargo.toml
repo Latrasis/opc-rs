@@ -6,12 +6,11 @@ license = "MIT"
 name = "opc"
 readme = "README.md"
 repository = "https://github.com/latrasis/opc-rs"
-version = "0.1.1"
+version = "0.2.0"
 
 [dependencies]
 byteorder = "0.5.3"
 tokio-core = "0.1.4"
-tokio-proto = "0.1.0"
 
 [dev-dependencies]
 rand = "0.3.14"

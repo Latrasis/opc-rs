@@ -3,9 +3,7 @@ extern crate tokio_core;
 extern crate futures;
 extern crate rand;
 
-
 use opc::{OpcCodec, Message, Command};
-
 use futures::{stream, Future, Stream, Sink, future};
 
 use tokio_core::io::Io;

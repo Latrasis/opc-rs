@@ -5,15 +5,15 @@
 //!     like [Total Control Lighting](http://www.coolneon.com/) and [Fadecandy devices](https://github.com/scanlime/fadecandy).
 //!     
 //!     
-//!     ##Server Example:
-//!
-//!     ```
+//!     # Examples
+//!     Setup Server to Listen for Messages: 
+//!     
+//!     ```rust,no_run
 //!     extern crate opc;
 //!     extern crate futures;
 //!     extern crate tokio_core;
 //!     
 //!     use opc::{OpcCodec, Message, Command};
-//!
 //!     use futures::{stream, Future, Stream, Sink};
 //!
 //!     use tokio_core::io::Io;
@@ -23,34 +23,33 @@
 //!     use std::{io, thread};
 //!     use std::time::Duration;
 //!     
-//!     let mut core = Core::new().unwrap();
-//!     let handle = core.handle();
-//!     let remote_addr = "127.0.0.1:7890".parse().unwrap();
+//!     fn main() {
+//!         let mut core = Core::new().unwrap();
+//!         let handle = core.handle();
+//!         let remote_addr = "127.0.0.1:7890".parse().unwrap();
 //!
-//!     let listener = TcpListener::bind(&remote_addr, &handle).unwrap();
+//!         let listener = TcpListener::bind(&remote_addr, &handle).unwrap();
 //!
-//!     // Accept all incoming sockets
-//!     let server = listener.incoming().for_each(move |(socket, _)| {
-//!         // `OpcCodec` handles encoding / decoding frames.
-//!         let transport = socket.framed(OpcCodec);
-//!         
-//!         let process_connection = transport.for_each(|message| {
-//!             println!("GOT: {}", message);
+//!         // Accept all incoming sockets
+//!         let server = listener.incoming().for_each(move |(socket, _)| {
+//!             // `OpcCodec` handles encoding / decoding frames.
+//!             let transport = socket.framed(OpcCodec);
+//!             
+//!             let process_connection = transport.for_each(|message| {
+//!                 println!("GOT: {:?}", message);
+//!                 Ok(())
+//!             });
+//!
+//!             // Spawn a new task dedicated to processing the connection
+//!             handle.spawn(process_connection.map_err(|_| ()));
+//!
 //!             Ok(())
 //!         });
 //!
-//!         // Spawn a new task dedicated to processing the connection
-//!         handle.spawn(process_connection.map_err(|_| ()));
-//!
-//!         Ok(())
-//!     });
-//!
-//!     // Open listener
-//!     core.run(server).unwrap();
+//!         // Open listener
+//!         core.run(server).unwrap();
+//!     }
 //!     ```
-
-
-
 
 extern crate tokio_core;
 extern crate byteorder;
@@ -138,6 +137,9 @@ impl Message {
     }
 }
 
+/// Open Pixel Codec Instance
+///
+/// See the `tokio-core::io::Codec` Trait on how to use as a transport
 pub struct OpcCodec;
 
 impl Codec for OpcCodec {
