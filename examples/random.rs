@@ -1,40 +1,53 @@
 extern crate opc;
+extern crate tokio_core;
+extern crate futures;
 extern crate rand;
 
-use std::io::prelude::*;
-use std::net::TcpStream;
-use std::thread;
-use std::time::{Duration};
-use std::cell::Cell;
-use opc::*;
-use rand::Rng;
 
+use opc::{OpcCodec, Message, Command};
+
+use futures::{stream, Future, Stream, Sink, future};
+
+use tokio_core::io::Io;
+use tokio_core::net::{TcpStream, TcpListener};
+use tokio_core::reactor::Core;
+
+use std::{io, thread};
+use std::time::Duration;
+
+use rand::*;
 
 fn main() {
 
-    let mut stream = TcpStream::connect("127.0.0.1:7890").unwrap();
-    let mut client = Client::new(stream);
+    let mut core = Core::new().unwrap();
+    let handle = core.handle();
+    let remote_addr = "192.168.1.230:7890".parse().unwrap();
 
-    let child = thread::spawn(move || {
-        let mut pixels = vec![[0,0,0]; 1000];
-        let mut rng = rand::thread_rng();
+    let work = TcpStream::connect(&remote_addr, &handle)
+        .and_then(|socket| {
+            let transport = socket.framed(OpcCodec);
 
-        loop {
+            let messages = stream::unfold(vec![[0,0,0]; 1000], |mut pixels| {
 
-            for pixel in pixels.iter_mut() {
-                for c in 0..2 {
-                    pixel[c] = rng.gen();
-                }
-            }
+                for pixel in pixels.iter_mut() {
+                    for c in 0..2 {
+                        pixel[c] = rand::random();
+                    }
+                };
 
-            let pixel_msg = Message {
-                channel: 1,
-                command: Command::SetPixelColors { pixels: pixels.clone() }
-            };
-            client.send(pixel_msg);
-            thread::sleep(Duration::from_millis(1000));
-        }
-    });
+                let pixel_msg = Message {
+                    channel: 0,
+                    command: Command::SetPixelColors { pixels: pixels.clone() }
+                };
 
-    let res = child.join();
+                std::thread::sleep(Duration::from_millis(100));
+
+                Some(future::ok::<_,io::Error>((pixel_msg, pixels)))
+            });
+
+            transport.send_all(messages)
+
+        });
+
+    core.run(work).unwrap();
 }

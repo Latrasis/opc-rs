@@ -1,15 +1,18 @@
 [package]
-name = "opc"
-version = "0.1.1"
 authors = ["Jacob Payne <info@latrasis.com>"]
-license = "MIT"
 description = "A rust implementation of the open pixel control protocol"
+keywords = ["openpixel"]
+license = "MIT"
+name = "opc"
 readme = "README.md"
 repository = "https://github.com/latrasis/opc-rs"
-keywords = ["openpixel"]
+version = "0.1.1"
 
 [dependencies]
 byteorder = "0.5.3"
+tokio-core = "0.1.4"
+tokio-proto = "0.1.0"
 
 [dev-dependencies]
 rand = "0.3.14"
+futures = "0.1.11"

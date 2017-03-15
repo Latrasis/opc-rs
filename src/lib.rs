@@ -1,9 +1,65 @@
+//!     
+//!     #Open Pixel Control
+//!     
+//!     Open Pixel Control is a protocol that is used to control arrays of RGB lights
+//!     like [Total Control Lighting](http://www.coolneon.com/) and [Fadecandy devices](https://github.com/scanlime/fadecandy).
+//!     
+//!     
+//!     ##Server Example:
+//!
+//!     ```
+//!     extern crate opc;
+//!     extern crate futures;
+//!     extern crate tokio_core;
+//!     
+//!     use opc::{OpcCodec, Message, Command};
+//!
+//!     use futures::{stream, Future, Stream, Sink};
+//!
+//!     use tokio_core::io::Io;
+//!     use tokio_core::net::{TcpStream, TcpListener};
+//!     use tokio_core::reactor::Core;
+//!
+//!     use std::{io, thread};
+//!     use std::time::Duration;
+//!     
+//!     let mut core = Core::new().unwrap();
+//!     let handle = core.handle();
+//!     let remote_addr = "127.0.0.1:7890".parse().unwrap();
+//!
+//!     let listener = TcpListener::bind(&remote_addr, &handle).unwrap();
+//!
+//!     // Accept all incoming sockets
+//!     let server = listener.incoming().for_each(move |(socket, _)| {
+//!         // `OpcCodec` handles encoding / decoding frames.
+//!         let transport = socket.framed(OpcCodec);
+//!         
+//!         let process_connection = transport.for_each(|message| {
+//!             println!("GOT: {}", message);
+//!             Ok(())
+//!         });
+//!
+//!         // Spawn a new task dedicated to processing the connection
+//!         handle.spawn(process_connection.map_err(|_| ()));
+//!
+//!         Ok(())
+//!     });
+//!
+//!     // Open listener
+//!     core.run(server).unwrap();
+//!     ```
+
+
+
+
+extern crate tokio_core;
 extern crate byteorder;
 
-#[allow (unused_variables)]
-#[allow (dead_code)]
+use std::io;
+use std::io::Write;
+
+use tokio_core::io::{Codec, EasyBuf, Io, Framed};
 use byteorder::{BigEndian, ByteOrder, WriteBytesExt};
-use std::io::*;
 
 /// Default openpixel tcp port
 pub const DEFAULT_OPC_PORT: usize = 7890;
@@ -21,14 +77,15 @@ pub enum Command {
         /// If the data block has length 3*n, then the first n pixels of the specified channel are set.
         /// All other pixels are unaffected and retain their current colour values.
         /// If the data length is not a multiple of 3, or there is data for more pixels than are present, the extra data is ignored.
-        pixels: Vec<[u8; 3]>
+        pixels: Vec<[u8; 3]>,
     },
     /// Used to send a message that is specific to a particular device or software system.
     SystemExclusive {
         /// The data block should begin with a two-byte system ID.
         id: [u8; 2],
         /// designers of that system are then free to define any message format for the rest of the data block.
-        data: Vec<u8> }
+        data: Vec<u8>,
+    },
 }
 
 /// Describes a single message that follows the OPC protocol
@@ -39,31 +96,34 @@ pub struct Message {
     /// Channels number from 1 to 255 are for each strand and listen for messages with that channel number.
     pub channel: u8,
     /// Designates the message type
-    pub command: Command
+    pub command: Command,
 }
 
 impl Message {
     /// Create new Message Instance from Pixel Array
-    pub fn from_pixels (ch: u8, pixels: &[[u8; 3]]) -> Message {
+    pub fn from_pixels(ch: u8, pixels: &[[u8; 3]]) -> Message {
         Message {
             channel: ch,
-            command: Command::SetPixelColors { pixels: pixels.to_owned() }
+            command: Command::SetPixelColors { pixels: pixels.to_owned() },
         }
     }
 
     /// Create new Message Instance from Data Array
-    pub fn from_data (ch: u8, id: &[u8; 2], data: &[u8]) -> Message {
+    pub fn from_data(ch: u8, id: &[u8; 2], data: &[u8]) -> Message {
         Message {
             channel: ch,
-            command: Command::SystemExclusive { id: id.to_owned(), data: data.to_owned() }
+            command: Command::SystemExclusive {
+                id: id.to_owned(),
+                data: data.to_owned(),
+            },
         }
     }
 
     /// Check Message Data Length
     pub fn len(&self) -> usize {
         match self.command {
-            Command::SetPixelColors {ref pixels} => pixels.len()*3,
-            Command::SystemExclusive {id: _, ref data} => data.len() + 2
+            Command::SetPixelColors { ref pixels } => pixels.len() * 3,
+            Command::SystemExclusive { id: _, ref data } => data.len() + 2,
         }
     }
 
@@ -78,182 +138,132 @@ impl Message {
     }
 }
 
-pub struct Client<W: Write> {
-    writer: BufWriter<W>
-}
+pub struct OpcCodec;
 
-impl <W: Write> Client<W> {
+impl Codec for OpcCodec {
+    type In = Message;
+    type Out = Message;
 
-    pub fn new(writer: W) -> Client<W> {
-        Client { writer: BufWriter::with_capacity(MAX_MESSAGE_SIZE, writer)}
-    }
-
-    pub fn send(&mut self, msg: Message) -> Result<()> {
-
-        let ser_len = msg.len();
-
-        match msg.command {
-            Command::SetPixelColors {pixels} => {
-
-                // Insert Channel and Command
-                try!(self.writer.write(&[msg.channel, SET_PIXEL_COLORS]));
-                // Insert Data Length
-                try!(self.writer.write_u16::<BigEndian>(ser_len as u16));
-
-                // Insert Data
-                for pixel in pixels {
-                    try!(self.writer.write(&pixel));
-                }
-            },
-            Command::SystemExclusive {id, data} => {
-
-                // Insert Channel and Command
-                try!(self.writer.write(&[msg.channel, SYS_EXCLUSIVE]));
-                // Insert Data Length
-                try!(self.writer.write_u16::<BigEndian>(ser_len as u16));
-
-                // Insert Data
-                try!(self.writer.write(&id));
-                try!(self.writer.write(&data));
-            }
-        }
-
-        self.writer.flush()
-    }
-}
-
-
-pub trait Device {
-    fn write_msg(&mut self, msg: &Message) -> Result<()>;
-    fn channel(&self) -> u8;
-}
-
-pub struct Server<R: Read, D: Device> {
-    reader: BufReader<R>,
-    devices: Vec<D>
-}
-
-impl <R: Read, D: Device> Server<R, D> {
-    pub fn new(reader: R) -> Server<R, D> {
-        Server {
-            reader: BufReader::with_capacity(MAX_MESSAGE_SIZE, reader),
-            devices: Vec::<D>::default()
-        }
-    }
-
-    pub fn register(&mut self, device: D) -> Result<()> {
-        Ok(self.devices.push(device))
-    }
-
-    fn dispatch(msg: &Message, devices: &mut [D]) -> Result<()>{
-        devices.iter_mut()
-            .filter(|device| msg.channel == 0 || device.channel() == msg.channel)
-            .map(|device| device.write_msg(msg))
-            .find(|res| res.is_err())
-            .unwrap_or(Ok(()))
-    }
-
-    fn read_msg(&mut self) -> Result<Message> {
+    fn decode(&mut self, buf: &mut EasyBuf) -> io::Result<Option<Self::In>> {
 
         let (msg, length) = {
-            let buf = try!(self.reader.fill_buf());
-
+            let buf = buf.as_slice();
             // Check if buf length is more than 4;
             if buf.len() < 4 {
-                return Err(Error::new(ErrorKind::InvalidData, "Invalid Message Command"));
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Message Command"));
             };
 
             let (channel, command) = (buf[0], buf[1]);
             let length = BigEndian::read_u16(&buf[2..4]) as usize;
+
+            if buf.len() < length + 4 {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Message Command"));
+            }
             let data = &buf[4..][..length];
+
             let msg = match command {
                 SET_PIXEL_COLORS => {
-                    let pixels: Vec<_> = data[..(length-(length % 3))].chunks(3).map(|chunk| [chunk[0],chunk[1],chunk[2]]).collect();
+                    let pixels: Vec<_> = data[..(length - (length % 3))]
+                        .chunks(3)
+                        .map(|chunk| [chunk[0], chunk[1], chunk[2]])
+                        .collect();
                     Message {
                         channel: channel,
-                        command: Command::SetPixelColors { pixels: pixels }
+                        command: Command::SetPixelColors { pixels: pixels },
                     }
 
-                },
+                }
                 SYS_EXCLUSIVE => {
                     Message {
                         channel: channel,
-                        command: Command::SystemExclusive { id: [data[0], data[1]], data: data[2..].to_vec() }
+                        command: Command::SystemExclusive {
+                            id: [data[0], data[1]],
+                            data: data[2..].to_vec(),
+                        },
                     }
-                },
+                }
                 // TODO: What to do if incorrect?
-                _ => return Err(Error::new(ErrorKind::InvalidData, "Invalid Message Command"))
+                _ => {
+                    return Err(io::Error::new(io::ErrorKind::InvalidData,
+                                              "Invalid Message Command"))
+                }
             };
 
-            (msg, length+4)
+            (msg, length + 4)
         };
 
-        self.reader.consume(length);
-        Ok(msg)
+        buf.drain_to(length);
+        Ok(Some(msg))
     }
 
-    pub fn process(&mut self) -> Result<()> {
-        while let Ok(ref msg) = self.read_msg() {
-            try!(Self::dispatch(msg, self.devices.as_mut()));
+    fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> io::Result<()> {
+
+        let ser_len = msg.len();
+
+        match msg.command {
+            Command::SetPixelColors { pixels } => {
+
+                // Insert Channel and Command
+                buf.write(&[msg.channel, SET_PIXEL_COLORS])?;
+                // Insert Data Length
+                buf.write_u16::<BigEndian>(ser_len as u16)?;
+
+                // Insert Data
+                for pixel in pixels {
+                    buf.write(&pixel)?;
+                }
+            }
+            Command::SystemExclusive { id, data } => {
+
+                // Insert Channel and Command
+                buf.write(&[msg.channel, SYS_EXCLUSIVE])?;
+                // Insert Data Length
+                buf.write_u16::<BigEndian>(ser_len as u16)?;
+
+                // Insert Data
+                buf.write(&id)?;
+                buf.write(&data)?;
+            }
         }
-        Ok(())
+
+        buf.flush()
+
     }
+}
+
+#[test]
+fn should_roundtrip_pixel_command() {
+
+    let mut codec = OpcCodec;
+    let mut buf = vec![];
+    let test_msg = Message {
+        channel: 4,
+        command: Command::SetPixelColors { pixels: vec![[9; 3]; 10] },
+    };
+
+    codec.encode(test_msg.clone(), &mut buf);
+    let recv_msg = codec.decode(&mut buf.into()).unwrap().unwrap();
+
+    assert_eq!(test_msg, recv_msg);
 
 }
 
 #[test]
-fn server_should_receive_pixel_command() {
+fn server_roundtrip_system_command() {
 
-    let mut client = Client::new(Vec::new());
+    let mut codec = OpcCodec;
+    let mut buf = vec![];
     let test_msg = Message {
         channel: 4,
-        command: Command::SetPixelColors { pixels: vec![[9; 3]; 10]}
+        command: Command::SystemExclusive {
+            id: [0; 2],
+            data: vec![8; 10],
+        },
     };
 
-    client.send(test_msg.clone());
+    codec.encode(test_msg.clone(), &mut buf);
+    let recv_msg = codec.decode(&mut buf.into()).unwrap().unwrap();
 
-    struct TestDevice;
-    impl Device for TestDevice {
-        fn write_msg(&mut self, msg: &Message) -> Result<()> {
-            assert_eq!(&Message {
-                channel: 4,
-                command: Command::SetPixelColors { pixels: vec![[9; 3]; 10]}
-            }, msg);
-            Ok(())
-        }
-        fn channel(&self) -> u8 { 4 }
-    }
-
-    let mut server = Server::new(client.writer.get_ref().as_slice());
-    server.register(TestDevice {});
-    server.process();
-}
-
-#[test]
-fn server_should_receive_system_command() {
-
-    let mut client = Client::new(Vec::new());
-    let test_msg = Message {
-        channel: 4,
-        command: Command::SystemExclusive { id: [0; 2], data: vec![8; 10]}
-    };
-
-    client.send(test_msg.clone());
-
-    struct TestDevice;
-    impl Device for TestDevice {
-        fn write_msg(&mut self, msg: &Message) -> Result<()> {
-            assert_eq!(&Message {
-                channel: 4,
-                command: Command::SystemExclusive { id: [0; 2], data: vec![8; 10]}
-            }, msg);
-            Ok(())
-        }
-        fn channel(&self) -> u8 { 4 }
-    }
-
-    let mut server = Server::new(client.writer.get_ref().as_slice());
-    server.register(TestDevice {});
-    server.process();
+    assert_eq!(test_msg, recv_msg);
 
 }
