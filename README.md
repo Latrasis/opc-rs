@@ -13,7 +13,7 @@ Open Pixel Control is a protocol that is used to control arrays of RGB lights li
 
 ## Documentation
 
-TODO
+https://docs.rs/opc
 
 ## Usage:
 
@@ -21,28 +21,57 @@ TODO
 
 ```rust
 extern crate opc;
+extern crate tokio_core;
+extern crate futures;
+extern crate rand;
 
-use std::net::TcpStream;
-use opc::*;
+
+use opc::{OpcCodec, Message, Command};
+
+use futures::{stream, Future, Stream, Sink, future};
+
+use tokio_core::io::Io;
+use tokio_core::net::{TcpStream, TcpListener};
+use tokio_core::reactor::Core;
+
+use std::{io, thread};
+use std::time::Duration;
+
+use rand::*;
 
 fn main() {
 
-    // Connect to a TCP Socket
-    let mut stream = TcpStream::connect("127.0.0.1:7890").unwrap();
-    // Create a Client
-    let mut client = Client::new(stream);
+    let mut core = Core::new().unwrap();
+    let handle = core.handle();
+    let remote_addr = "192.168.1.230:7890".parse().unwrap();
 
-    // Create a Vector of Pixels
-    let mut pixels = vec![[0,0,0]; 1000];
+    let work = TcpStream::connect(&remote_addr, &handle)
+        .and_then(|socket| {
+            let transport = socket.framed(OpcCodec);
 
-    // Create Message
-    let pixel_msg = Message {
-      channel: 1,
-      command: Command::SetPixelColors { pixels: pixels }
-    };
+            let messages = stream::unfold(vec![[0,0,0]; 1000], |mut pixels| {
 
-    // Send Message
-    client.send(pixel_msg);
+                for pixel in pixels.iter_mut() {
+                    for c in 0..2 {
+                        pixel[c] = rand::random();
+                    }
+                };
+
+                let pixel_msg = Message {
+                    channel: 0,
+                    command: Command::SetPixelColors { pixels: pixels.clone() }
+                };
+
+                std::thread::sleep(Duration::from_millis(100));
+
+                Some(future::ok::<_,io::Error>((pixel_msg, pixels)))
+            });
+
+            transport.send_all(messages)
+
+        });
+
+    core.run(work).unwrap();
 }
 
 ```
@@ -50,38 +79,44 @@ fn main() {
 ### Server:
 
 ```rust
-extern crate opc;
+ extern crate opc;
+ extern crate futures;
+ extern crate tokio_core;
+ 
+ use opc::{OpcCodec, Message, Command};
 
-use std::net::TcpStream;
-use opc::*;
+ use futures::{stream, Future, Stream, Sink};
 
-fn main() {
+ use tokio_core::io::Io;
+ use tokio_core::net::{TcpStream, TcpListener};
+ use tokio_core::reactor::Core;
 
-    // Connect to a TCP Socket
-    let stream = TcpStream::connect("127.0.0.1:7890").unwrap();
-    // Create New Server
-    let mut server = Server::new(stream);
+ use std::{io, thread};
+ use std::time::Duration;
+ 
+ let mut core = Core::new().unwrap();
+ let handle = core.handle();
+ let remote_addr = "127.0.0.1:7890".parse().unwrap();
 
-    // Define a Device
-    struct TestDevice;
+ let listener = TcpListener::bind(&remote_addr, &handle).unwrap();
 
-    // A device must implement the opc::Device Trait
-    impl Device for TestDevice {
-      fn write_msg(&mut self, msg: &Message) -> Result<()> {
-          match msg.command {
-            Command::SetPixelColors {pixels} => () // Receive Pixels,
-            Command::SystemExclusive {id, data} => () // Receive Custom Data
-          }
-          Ok(())
-      }
-      fn channel(&self) -> u8 { 0 }
-    }
+ // Accept all incoming sockets
+ let server = listener.incoming().for_each(move |(socket, _)| {
+     // `OpcCodec` handles encoding / decoding frames.
+     let transport = socket.framed(OpcCodec);
+     
+     let process_connection = transport.for_each(|message| {
+         println!("GOT: {}", message);
+         Ok(())
+     });
 
-    // Register Device
-    server.register(TestDevice {});
+     // Spawn a new task dedicated to processing the connection
+     handle.spawn(process_connection.map_err(|_| ()));
 
-    // Start Server
-    server.process();
-}
+     Ok(())
+ });
+
+ // Open listener
+ core.run(server).unwrap();
 
 ```
