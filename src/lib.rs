@@ -135,8 +135,6 @@ impl Message {
 }
 
 /// Open Pixel Codec Instance
-///
-/// See the `tokio-core::io::Codec` Trait on how to use as a transport
 pub struct OpcCodec;
 
 impl Decoder for OpcCodec {
