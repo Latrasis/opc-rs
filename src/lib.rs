@@ -55,7 +55,7 @@ extern crate bytes;
 use std::io;
 
 use tokio_io::codec::{Encoder, Decoder};
-use bytes::{BytesMut, BufMut, ByteOrder, BigEndian};
+use bytes::{BytesMut, BufMut, Buf, IntoBuf, BigEndian};
 
 /// Default openpixel tcp port
 pub const DEFAULT_OPC_PORT: usize = 7890;
@@ -143,26 +143,29 @@ impl Decoder for OpcCodec {
     type Item = Message;
     type Error = io::Error;
 
-    fn decode(&mut self, buf: &mut BytesMut) -> io::Result<Option<Self::Item>> {
+    fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<Self::Item>> {
 
         let (msg, length) = {
-            let buf = &buf[..];
+            // Get Temporary Src
+            let mut src = src.clone();
+
             // Check if buf length is more than 4;
-            if buf.len() < 4 {
+            if src.len() < 4 {
                 return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Message Command"));
             };
+            let mut buf = src.split_to(4).into_buf();
 
-            let (channel, command) = (buf[0], buf[1]);
-            let length = BigEndian::read_u16(&buf[2..4]) as usize;
+            let (channel, command) = (buf.get_u8(), buf.get_u8());
+            let length = buf.get_u16::<BigEndian>() as usize;
 
-            if buf.len() < length + 4 {
+            if src.len() < length {
                 return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Message Command"));
             }
-            let data = &buf[4..][..length];
+            let mut buf = src.split_to(length).into_buf();
 
             let msg = match command {
                 SET_PIXEL_COLORS => {
-                    let pixels: Vec<_> = data[..(length - (length % 3))]
+                    let pixels: Vec<_> = buf.bytes()[..length - (length % 3)]
                         .chunks(3)
                         .map(|chunk| [chunk[0], chunk[1], chunk[2]])
                         .collect();
@@ -170,14 +173,13 @@ impl Decoder for OpcCodec {
                         channel: channel,
                         command: Command::SetPixelColors { pixels: pixels },
                     }
-
                 }
                 SYS_EXCLUSIVE => {
                     Message {
                         channel: channel,
                         command: Command::SystemExclusive {
-                            id: [data[0], data[1]],
-                            data: data[2..].to_vec(),
+                            id: [buf.get_u8(), buf.get_u8()],
+                            data: buf.collect(),
                         },
                     }
                 }
@@ -191,7 +193,8 @@ impl Decoder for OpcCodec {
             (msg, length + 4)
         };
 
-        buf.split_to(length);
+        // Advance
+        src.split_to(length);
         Ok(Some(msg))
     }
 }
@@ -200,34 +203,34 @@ impl Encoder for OpcCodec {
     type Item = Message;
     type Error = io::Error;
 
-    fn encode(&mut self, msg: Self::Item, buf: &mut bytes::BytesMut) -> io::Result<()> {
+    fn encode(&mut self, msg: Self::Item, dst: &mut BytesMut) -> io::Result<()> {
 
         let ser_len = msg.len();
-        buf.reserve(4 + ser_len);
+        dst.reserve(4 + ser_len);
 
         match msg.command {
             Command::SetPixelColors { pixels } => {
 
                 // Insert Channel and Command
-                buf.put_slice(&[msg.channel, SET_PIXEL_COLORS]);
+                dst.put_slice(&[msg.channel, SET_PIXEL_COLORS]);
                 // Insert Data Length
-                buf.put_u16::<BigEndian>(ser_len as u16);
+                dst.put_u16::<BigEndian>(ser_len as u16);
 
                 // Insert Data
                 for pixel in pixels {
-                    buf.put_slice(&pixel);
+                    dst.put_slice(&pixel);
                 }
             }
             Command::SystemExclusive { id, data } => {
 
                 // Insert Channel and Command
-                buf.put_slice(&[msg.channel, SYS_EXCLUSIVE]);
+                dst.put_slice(&[msg.channel, SYS_EXCLUSIVE]);
                 // Insert Data Length
-                buf.put_u16::<BigEndian>(ser_len as u16);
+                dst.put_u16::<BigEndian>(ser_len as u16);
 
                 // Insert Data
-                buf.put_slice(&id);
-                buf.put_slice(&data);
+                dst.put_slice(&id);
+                dst.put_slice(&data);
             }
         }
 

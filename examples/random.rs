@@ -34,10 +34,7 @@ fn main() {
                     }
                 };
 
-                let pixel_msg = Message {
-                    channel: 0,
-                    command: Command::SetPixelColors { pixels: pixels.clone() }
-                };
+                let pixel_msg = Message::from_pixels(0, pixels);
 
                 std::thread::sleep(Duration::from_millis(100));
 
