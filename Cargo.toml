@@ -7,6 +7,7 @@ name = "opc"
 readme = "README.md"
 repository = "https://github.com/latrasis/opc-rs"
 version = "0.3.0"
+documentation = "https://docs.rs/opc"
 
 [dependencies]
 tokio-io = "0.1.2"
