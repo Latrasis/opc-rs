@@ -22,20 +22,20 @@ https://docs.rs/opc
 ```rust
 extern crate opc;
 extern crate tokio_core;
+extern crate tokio_io;
 extern crate futures;
 extern crate rand;
 
 use opc::{OpcCodec, Message, Command};
-use futures::{stream, Future, Stream, Sink, future};
+use futures::{stream, Future, Sink, future};
 
-use tokio_core::io::Io;
-use tokio_core::net::{TcpStream, TcpListener};
+use tokio_io::AsyncRead;
+use tokio_core::net::TcpStream;
 use tokio_core::reactor::Core;
 
-use std::{io, thread};
+use std::io;
 use std::time::Duration;
 
-use rand::*;
 
 fn main() {
 
@@ -45,6 +45,7 @@ fn main() {
 
     let work = TcpStream::connect(&remote_addr, &handle)
         .and_then(|socket| {
+
             let transport = socket.framed(OpcCodec);
 
             let messages = stream::unfold(vec![[0,0,0]; 1000], |mut pixels| {
@@ -71,50 +72,47 @@ fn main() {
 
     core.run(work).unwrap();
 }
-
 ```
 
 ### Server:
 
 ```rust
- extern crate opc;
- extern crate futures;
- extern crate tokio_core;
- 
- use opc::{OpcCodec, Message, Command};
+extern crate opc;
+extern crate futures;
+extern crate tokio_core;
+extern crate tokio_io;
 
- use futures::{stream, Future, Stream, Sink};
+use opc::OpcCodec;
+use futures::{Future, Stream};
 
- use tokio_core::io::Io;
- use tokio_core::net::{TcpStream, TcpListener};
- use tokio_core::reactor::Core;
+use tokio_io::AsyncRead;
+use tokio_core::net::TcpListener;
+use tokio_core::reactor::Core;
 
- use std::{io, thread};
- use std::time::Duration;
- 
- let mut core = Core::new().unwrap();
- let handle = core.handle();
- let remote_addr = "127.0.0.1:7890".parse().unwrap();
+fn main() {
+    let mut core = Core::new().unwrap();
+    let handle = core.handle();
+    let remote_addr = "127.0.0.1:7890".parse().unwrap();
 
- let listener = TcpListener::bind(&remote_addr, &handle).unwrap();
+    let listener = TcpListener::bind(&remote_addr, &handle).unwrap();
 
- // Accept all incoming sockets
- let server = listener.incoming().for_each(move |(socket, _)| {
-     // `OpcCodec` handles encoding / decoding frames.
-     let transport = socket.framed(OpcCodec);
-     
-     let process_connection = transport.for_each(|message| {
-         println!("GOT: {}", message);
-         Ok(())
-     });
+    // Accept all incoming sockets
+    let server = listener.incoming().for_each(move |(socket, _)| {
+        // `OpcCodec` handles encoding / decoding frames.
+        let transport = socket.framed(OpcCodec);
 
-     // Spawn a new task dedicated to processing the connection
-     handle.spawn(process_connection.map_err(|_| ()));
+        let process_connection = transport.for_each(|message| {
+            println!("GOT: {:?}", message);
+            Ok(())
+        });
 
-     Ok(())
- });
+        // Spawn a new task dedicated to processing the connection
+        handle.spawn(process_connection.map_err(|_| ()));
 
- // Open listener
- core.run(server).unwrap();
+        Ok(())
+    });
 
+    // Open listener
+    core.run(server).unwrap();
+}
 ```

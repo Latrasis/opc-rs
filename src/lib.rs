@@ -12,53 +12,50 @@
 //!     extern crate opc;
 //!     extern crate futures;
 //!     extern crate tokio_core;
+//!     extern crate tokio_io;
 //!     
-//!     use opc::{OpcCodec, Message, Command};
-//!     use futures::{stream, Future, Stream, Sink};
-//!
-//!     use tokio_core::io::Io;
-//!     use tokio_core::net::{TcpStream, TcpListener};
+//!     use opc::OpcCodec;
+//!     use futures::{Future, Stream};
+//!     
+//!     use tokio_io::AsyncRead;
+//!     use tokio_core::net::TcpListener;
 //!     use tokio_core::reactor::Core;
-//!
-//!     use std::{io, thread};
-//!     use std::time::Duration;
 //!     
 //!     fn main() {
 //!         let mut core = Core::new().unwrap();
 //!         let handle = core.handle();
 //!         let remote_addr = "127.0.0.1:7890".parse().unwrap();
-//!
+//!     
 //!         let listener = TcpListener::bind(&remote_addr, &handle).unwrap();
-//!
+//!     
 //!         // Accept all incoming sockets
 //!         let server = listener.incoming().for_each(move |(socket, _)| {
 //!             // `OpcCodec` handles encoding / decoding frames.
 //!             let transport = socket.framed(OpcCodec);
-//!             
+//!     
 //!             let process_connection = transport.for_each(|message| {
 //!                 println!("GOT: {:?}", message);
 //!                 Ok(())
 //!             });
-//!
+//!     
 //!             // Spawn a new task dedicated to processing the connection
 //!             handle.spawn(process_connection.map_err(|_| ()));
-//!
+//!     
 //!             Ok(())
 //!         });
-//!
+//!     
 //!         // Open listener
 //!         core.run(server).unwrap();
 //!     }
 //!     ```
 
-extern crate tokio_core;
-extern crate byteorder;
+extern crate tokio_io;
+extern crate bytes;
 
 use std::io;
-use std::io::Write;
 
-use tokio_core::io::{Codec, EasyBuf, Io, Framed};
-use byteorder::{BigEndian, ByteOrder, WriteBytesExt};
+use tokio_io::codec::{Encoder, Decoder};
+use bytes::{BytesMut, BufMut, ByteOrder, BigEndian};
 
 /// Default openpixel tcp port
 pub const DEFAULT_OPC_PORT: usize = 7890;
@@ -142,14 +139,14 @@ impl Message {
 /// See the `tokio-core::io::Codec` Trait on how to use as a transport
 pub struct OpcCodec;
 
-impl Codec for OpcCodec {
-    type In = Message;
-    type Out = Message;
+impl Decoder for OpcCodec {
+    type Item = Message;
+    type Error = io::Error;
 
-    fn decode(&mut self, buf: &mut EasyBuf) -> io::Result<Option<Self::In>> {
+    fn decode(&mut self, buf: &mut BytesMut) -> io::Result<Option<Self::Item>> {
 
         let (msg, length) = {
-            let buf = buf.as_slice();
+            let buf = &buf[..];
             // Check if buf length is more than 4;
             if buf.len() < 4 {
                 return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Message Command"));
@@ -194,42 +191,47 @@ impl Codec for OpcCodec {
             (msg, length + 4)
         };
 
-        buf.drain_to(length);
+        buf.split_to(length);
         Ok(Some(msg))
     }
+}
 
-    fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> io::Result<()> {
+impl Encoder for OpcCodec {
+    type Item = Message;
+    type Error = io::Error;
+
+    fn encode(&mut self, msg: Self::Item, buf: &mut bytes::BytesMut) -> io::Result<()> {
 
         let ser_len = msg.len();
+        buf.reserve(4 + ser_len);
 
         match msg.command {
             Command::SetPixelColors { pixels } => {
 
                 // Insert Channel and Command
-                buf.write(&[msg.channel, SET_PIXEL_COLORS])?;
+                buf.put_slice(&[msg.channel, SET_PIXEL_COLORS]);
                 // Insert Data Length
-                buf.write_u16::<BigEndian>(ser_len as u16)?;
+                buf.put_u16::<BigEndian>(ser_len as u16);
 
                 // Insert Data
                 for pixel in pixels {
-                    buf.write(&pixel)?;
+                    buf.put_slice(&pixel);
                 }
             }
             Command::SystemExclusive { id, data } => {
 
                 // Insert Channel and Command
-                buf.write(&[msg.channel, SYS_EXCLUSIVE])?;
+                buf.put_slice(&[msg.channel, SYS_EXCLUSIVE]);
                 // Insert Data Length
-                buf.write_u16::<BigEndian>(ser_len as u16)?;
+                buf.put_u16::<BigEndian>(ser_len as u16);
 
                 // Insert Data
-                buf.write(&id)?;
-                buf.write(&data)?;
+                buf.put_slice(&id);
+                buf.put_slice(&data);
             }
         }
 
-        buf.flush()
-
+        Ok(())
     }
 }
 
@@ -237,13 +239,14 @@ impl Codec for OpcCodec {
 fn should_roundtrip_pixel_command() {
 
     let mut codec = OpcCodec;
-    let mut buf = vec![];
+    let mut buf = BytesMut::new();
     let test_msg = Message {
         channel: 4,
         command: Command::SetPixelColors { pixels: vec![[9; 3]; 10] },
     };
 
-    codec.encode(test_msg.clone(), &mut buf);
+    assert!(codec.encode(test_msg.clone(), &mut buf).is_ok());
+
     let recv_msg = codec.decode(&mut buf.into()).unwrap().unwrap();
 
     assert_eq!(test_msg, recv_msg);
@@ -254,7 +257,7 @@ fn should_roundtrip_pixel_command() {
 fn server_roundtrip_system_command() {
 
     let mut codec = OpcCodec;
-    let mut buf = vec![];
+    let mut buf = BytesMut::new();
     let test_msg = Message {
         channel: 4,
         command: Command::SystemExclusive {
@@ -263,7 +266,8 @@ fn server_roundtrip_system_command() {
         },
     };
 
-    codec.encode(test_msg.clone(), &mut buf);
+    assert!(codec.encode(test_msg.clone(), &mut buf).is_ok());
+
     let recv_msg = codec.decode(&mut buf.into()).unwrap().unwrap();
 
     assert_eq!(test_msg, recv_msg);

@@ -1,19 +1,19 @@
 extern crate opc;
 extern crate tokio_core;
+extern crate tokio_io;
 extern crate futures;
 extern crate rand;
 
 use opc::{OpcCodec, Message, Command};
-use futures::{stream, Future, Stream, Sink, future};
+use futures::{stream, Future, Sink, future};
 
-use tokio_core::io::Io;
-use tokio_core::net::{TcpStream, TcpListener};
+use tokio_io::AsyncRead;
+use tokio_core::net::TcpStream;
 use tokio_core::reactor::Core;
 
-use std::{io, thread};
+use std::io;
 use std::time::Duration;
 
-use rand::*;
 
 fn main() {
 
@@ -23,6 +23,7 @@ fn main() {
 
     let work = TcpStream::connect(&remote_addr, &handle)
         .and_then(|socket| {
+
             let transport = socket.framed(OpcCodec);
 
             let messages = stream::unfold(vec![[0,0,0]; 1000], |mut pixels| {
