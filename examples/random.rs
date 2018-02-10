@@ -34,7 +34,7 @@ fn main() {
                     }
                 };
 
-                let pixel_msg = Message::from_pixels(0, pixels);
+                let pixel_msg = Message::from_pixels(0, &pixels);
 
                 std::thread::sleep(Duration::from_millis(100));
 
