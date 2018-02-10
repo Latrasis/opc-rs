@@ -6,6 +6,7 @@ extern crate rand;
 
 use opc::{OpcCodec, Message, Command};
 use futures::{stream, Future, Sink, future};
+use rand::Rng;
 
 use tokio_io::AsyncRead;
 use tokio_core::net::TcpStream;
@@ -23,17 +24,18 @@ fn main() {
     let endpoint = env::var("OPC_ENDPOINT")
         .unwrap_or(String::from("127.0.0.1:7890"));
     let remote_addr = endpoint.parse().unwrap();
+    let mut rng = rand::thread_rng();
 
     let work = TcpStream::connect(&remote_addr, &handle)
         .and_then(|socket| {
 
             let transport = socket.framed(OpcCodec);
 
-            let messages = stream::unfold(vec![[0,0,0]; 1000], |mut pixels| {
+            let messages = stream::unfold(vec![[0,0,0]; 512], |mut pixels| {
 
                 for pixel in pixels.iter_mut() {
-                    for c in 0..2 {
-                        pixel[c] = rand::random();
+                    for c in 0..3 {
+                        pixel[c] = rng.gen();
                     }
                 };
 
