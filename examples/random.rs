@@ -11,6 +11,7 @@ use tokio_io::AsyncRead;
 use tokio_core::net::TcpStream;
 use tokio_core::reactor::Core;
 
+use std::env;
 use std::io;
 use std::time::Duration;
 
@@ -19,7 +20,9 @@ fn main() {
 
     let mut core = Core::new().unwrap();
     let handle = core.handle();
-    let remote_addr = "192.168.1.230:7890".parse().unwrap();
+    let endpoint = env::var("OPC_ENDPOINT")
+        .unwrap_or(String::from("127.0.0.1:7890"));
+    let remote_addr = endpoint.parse().unwrap();
 
     let work = TcpStream::connect(&remote_addr, &handle)
         .and_then(|socket| {
