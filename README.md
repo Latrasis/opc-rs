@@ -15,6 +15,19 @@ Open Pixel Control is a protocol that is used to control arrays of RGB lights li
 
 https://docs.rs/opc
 
+## Examples
+You can run the random color example with:
+
+```bash
+cargo run --example random
+```
+
+If you need to specify another server for the example:
+
+```bash
+OPC_ENDPOINT=192.168.0.42:7890 cargo run --example random
+```
+
 ## Usage:
 
 ### Client:
@@ -28,11 +41,13 @@ extern crate rand;
 
 use opc::{OpcCodec, Message, Command};
 use futures::{stream, Future, Sink, future};
+use rand::Rng;
 
 use tokio_io::AsyncRead;
 use tokio_core::net::TcpStream;
 use tokio_core::reactor::Core;
 
+use std::env;
 use std::io;
 use std::time::Duration;
 
@@ -41,25 +56,25 @@ fn main() {
 
     let mut core = Core::new().unwrap();
     let handle = core.handle();
-    let remote_addr = "192.168.1.230:7890".parse().unwrap();
+    let endpoint = env::var("OPC_ENDPOINT")
+        .unwrap_or(String::from("127.0.0.1:7890"));
+    let remote_addr = endpoint.parse().unwrap();
+    let mut rng = rand::thread_rng();
 
     let work = TcpStream::connect(&remote_addr, &handle)
         .and_then(|socket| {
 
             let transport = socket.framed(OpcCodec);
 
-            let messages = stream::unfold(vec![[0,0,0]; 1000], |mut pixels| {
+            let messages = stream::unfold(vec![[0,0,0]; 512], |mut pixels| {
 
                 for pixel in pixels.iter_mut() {
-                    for c in 0..2 {
-                        pixel[c] = rand::random();
+                    for c in 0..3 {
+                        pixel[c] = rng.gen();
                     }
                 };
 
-                let pixel_msg = Message {
-                    channel: 0,
-                    command: Command::SetPixelColors { pixels: pixels.clone() }
-                };
+                let pixel_msg = Message::from_pixels(0, &pixels);
 
                 std::thread::sleep(Duration::from_millis(100));
 
