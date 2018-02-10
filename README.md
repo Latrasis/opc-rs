@@ -15,6 +15,19 @@ Open Pixel Control is a protocol that is used to control arrays of RGB lights li
 
 https://docs.rs/opc
 
+## Examples
+You can run the random color example with:
+
+```bash
+cargo run --example random
+```
+
+If you need to specify another server for the example:
+
+```bash
+OPC_ENDPOINT=192.168.0.42:7890 cargo run --example random
+```
+
 ## Usage:
 
 ### Client:
